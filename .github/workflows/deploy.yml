@@ -20,7 +20,7 @@ jobs:
       - name: 构建并推送到阿里云
         run: |
           # 定义变量方便使用
-          IMAGE_NAME=${{ secrets.DOCKER_REGISTRY }}/rch_dev/devops-app:latest
+          IMAGE_NAME=${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_NAMESPACE }}/devops-app:latest
           docker build -t $IMAGE_NAME .
           docker push $IMAGE_NAME
 
@@ -32,7 +32,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             # 定义变量方便使用
-            IMAGE_NAME=${{ secrets.DOCKER_REGISTRY }}/rch_dev/devops-app:latest
+             IMAGE_NAME=${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_NAMESPACE }}/devops-app:latest
             docker pull $IMAGE_NAME
             docker stop devops-app || true
             docker rm -f devops-app || true
