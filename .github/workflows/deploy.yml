@@ -18,8 +18,8 @@ jobs:
 
       - name: 构建并推送到 Docker Hub
         run: |
-          docker build -t devops .
-          docker push devops
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/devops:latest .
+          docker push ${{ secrets.DOCKER_USERNAME }}/devops:latest
 
       - name: 部署到服务器 (SSH)
         uses: appleboy/ssh-action@master
@@ -28,7 +28,7 @@ jobs:
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            docker pull devops
+            docker pull ${{ secrets.DOCKER_USERNAME }}/devops:latest
             docker stop devops-app || true
             docker rm devops-app || true
-            docker run -d --name devops-app -p 80:80 devops
+            docker run -d --name devops-app -p 80:80 ${{ secrets.DOCKER_USERNAME }}/devops:latest
