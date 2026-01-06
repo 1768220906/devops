@@ -1,7 +1,8 @@
 name: CI/CD Pipeline
+
 on:
   push:
-    branches: [master] # 只有 push 到 master 分支才触发
+    branches: [master]
 
 jobs:
   build-and-deploy:
@@ -10,6 +11,10 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
+      # 1. 设置 Docker Buildx (启用增强型构建引擎)
+      - name: 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: 登录阿里云镜像仓库
         uses: docker/login-action@v3
         with:
@@ -17,25 +22,20 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      # 2. 使用 build-push-action 进行构建
+      # 它会自动处理：构建镜像、打多个标签、上传/下载云端缓存
       - name: 构建并推送到阿里云
-        run: |
-          # 1. 定义镜像基础路径
-          REGISTRY_IMAGE=${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_NAMESPACE }}/devops-app
-
-          # 2. 定义两个标签：一个是唯一的 Commit ID，一个是通用的 latest
-          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
-          TAG_NAME=$REGISTRY_IMAGE:$SHORT_SHA
-          LATEST_NAME=$REGISTRY_IMAGE:latest
-
-          # 3. 构建并同时打两个标签
-          docker build -t $TAG_NAME -t $LATEST_NAME .
-
-          # 4. 推送两个标签到仓库
-          docker push $TAG_NAME
-          docker push $LATEST_NAME
-
-          # 将当前标签存入环境变量，方便后续部署步骤使用
-          echo "DEPLOY_TAG=$TAG_NAME" >> $GITHUB_ENV
+        id: docker_build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_NAMESPACE }}/devops-app:latest
+            ${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_NAMESPACE }}/devops-app:${{ github.sha }}
+          # 开启 GitHub Actions 专用缓存
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: 部署到服务器 (SSH)
         uses: appleboy/ssh-action@master
@@ -44,11 +44,14 @@ jobs:
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            # 使用刚才构建的唯一标签来部署，确保部署的版本绝对准确
-            IMAGE_NAME=${{ env.DEPLOY_TAG }}
+            # 使用这次提交的唯一镜像 ID (SHA) 进行部署
+            # 这样可以确保拉取的是刚刚构建出来的那个版本
+            IMAGE_NAME=${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_NAMESPACE }}/devops-app:${{ github.sha }}
+
             docker pull $IMAGE_NAME
             docker stop devops-app || true
             docker rm -f devops-app || true
             docker run -d --name devops-app -p 80:80 $IMAGE_NAME
-            # 清理旧的无用镜像，释放服务器空间
+
+            # 清理服务器上的虚悬镜像（旧版本碎皮），防止磁盘满
             docker image prune -f
