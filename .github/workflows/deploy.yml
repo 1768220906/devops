@@ -19,10 +19,23 @@ jobs:
 
       - name: 构建并推送到阿里云
         run: |
-          # 定义变量方便使用
-          IMAGE_NAME=${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_NAMESPACE }}/devops-app:latest
-          docker build -t $IMAGE_NAME .
-          docker push $IMAGE_NAME
+          # 1. 定义镜像基础路径
+          REGISTRY_IMAGE=${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_NAMESPACE }}/devops-app
+
+          # 2. 定义两个标签：一个是唯一的 Commit ID，一个是通用的 latest
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          TAG_NAME=$REGISTRY_IMAGE:$SHORT_SHA
+          LATEST_NAME=$REGISTRY_IMAGE:latest
+
+          # 3. 构建并同时打两个标签
+          docker build -t $TAG_NAME -t $LATEST_NAME .
+
+          # 4. 推送两个标签到仓库
+          docker push $TAG_NAME
+          docker push $LATEST_NAME
+
+          # 将当前标签存入环境变量，方便后续部署步骤使用
+          echo "DEPLOY_TAG=$TAG_NAME" >> $GITHUB_ENV
 
       - name: 部署到服务器 (SSH)
         uses: appleboy/ssh-action@master
@@ -31,9 +44,11 @@ jobs:
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            # 定义变量方便使用
-             IMAGE_NAME=${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_NAMESPACE }}/devops-app:latest
+            # 使用刚才构建的唯一标签来部署，确保部署的版本绝对准确
+            IMAGE_NAME=${{ env.DEPLOY_TAG }}
             docker pull $IMAGE_NAME
             docker stop devops-app || true
             docker rm -f devops-app || true
             docker run -d --name devops-app -p 80:80 $IMAGE_NAME
+            # 清理旧的无用镜像，释放服务器空间
+            docker image prune -f
